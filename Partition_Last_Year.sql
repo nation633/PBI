@@ -28,7 +28,7 @@ WITH CTE_Activity AS (
         ModifiedBy,
         ActivityOwner,
         OwnerEmployeeNumber
-    FROM [CRM].[dbo].[Activities_History_Tbl] WITH (NOLOCK)
+    FROM Activities_History_Tbl WITH (NOLOCK)
     -- Dynamic Partition Filter
     WHERE CreatedOn >= DATEFROMPARTS(YEAR(GETDATE())-1, 1, 1)
       AND CreatedOn < DATEFROMPARTS(YEAR(GETDATE()), 1, 1)
@@ -44,7 +44,7 @@ CTE_Lead AS (
         NccLeadsource,
         NccWrapUp,
         NccSubWrapUp
-    FROM [CRM].[dbo].[Leads_History_Tbl] WITH (NOLOCK)
+    FROM Leads_History_Tbl WITH (NOLOCK)
 ),
 CTE_Case AS (
     SELECT
@@ -73,7 +73,7 @@ CTE_Case AS (
         BranchCallerEmployeeName,
         BranchCallerEmployeeNumber,
         BranchCallerEmployeeBranchCode
-    FROM [CRM].[dbo].[Cases_History_Tbl] WITH (NOLOCK)
+    FROM Cases_History_Tbl WITH (NOLOCK)
 ),
 CTE_JoinedData AS (
     SELECT
