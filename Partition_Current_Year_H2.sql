@@ -28,7 +28,7 @@ WITH CTE_Activity AS (
         ModifiedBy,
         ActivityOwner,
         OwnerEmployeeNumber
-    FROM Activities_History_Tbl WITH (NOLOCK)
+    FROM [CRM].[dbo].[Activities_History_Tbl] WITH (NOLOCK)
     -- Dynamic Partition Filter
     WHERE CreatedOn >= DATEFROMPARTS(YEAR(GETDATE()), 7, 1)
       AND CreatedOn < DATEFROMPARTS(YEAR(GETDATE())+1, 1, 1)
@@ -44,7 +44,7 @@ CTE_Lead AS (
         NccLeadsource,
         NccWrapUp,
         NccSubWrapUp
-    FROM Leads_History_Tbl WITH (NOLOCK)
+    FROM [CRM].[dbo].[Leads_History_Tbl] WITH (NOLOCK)
 ),
 CTE_Case AS (
     SELECT
@@ -73,7 +73,7 @@ CTE_Case AS (
         BranchCallerEmployeeName,
         BranchCallerEmployeeNumber,
         BranchCallerEmployeeBranchCode
-    FROM Cases_History_Tbl WITH (NOLOCK)
+    FROM [CRM].[dbo].[Cases_History_Tbl] WITH (NOLOCK)
 ),
 CTE_JoinedData AS (
     SELECT
@@ -128,11 +128,17 @@ CTE_JoinedData AS (
     LEFT JOIN CTE_Case AS Case_
         ON Activity.RegardingObjectId = Case_.CaseId
 
-    -- Optimized Staff Join: Two separate joins for 'NB' and 'CC' prefixes
-    LEFT JOIN [NCC_WFO_Telephony].[dbo].[SAP_StaffData_General] Sp_NB WITH (NOLOCK)
-        ON Activity.BranchCallerEmployeeNumber = 'NB' + CAST(Sp_NB.StaffNo AS VARCHAR(20))
-    LEFT JOIN [NCC_WFO_Telephony].[dbo].[SAP_StaffData_General] Sp_CC WITH (NOLOCK)
-        ON Activity.BranchCallerEmployeeNumber = 'CC' + CAST(Sp_CC.StaffNo AS VARCHAR(20))
+    -- Optimized Staff Join: Two separate joins for 'NB' and 'CC' prefixes (Deduplicated with OUTER APPLY)
+    OUTER APPLY (
+        SELECT TOP 1 Area, Region, Title, Position
+        FROM [NCC_WFO_Telephony].[dbo].[SAP_StaffData_General] WITH (NOLOCK)
+        WHERE Activity.BranchCallerEmployeeNumber = 'NB' + CAST(StaffNo AS VARCHAR(20))
+    ) Sp_NB
+    OUTER APPLY (
+        SELECT TOP 1 Area, Region, Title, Position
+        FROM [NCC_WFO_Telephony].[dbo].[SAP_StaffData_General] WITH (NOLOCK)
+        WHERE Activity.BranchCallerEmployeeNumber = 'CC' + CAST(StaffNo AS VARCHAR(20))
+    ) Sp_CC
 ),
 CTE_DerivedLogic AS (
     SELECT
