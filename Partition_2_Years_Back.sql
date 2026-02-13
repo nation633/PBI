@@ -33,53 +33,11 @@ WITH CTE_Activity AS (
     WHERE CreatedOn >= DATEFROMPARTS(YEAR(GETDATE())-2, 1, 1)
       AND CreatedOn < DATEFROMPARTS(YEAR(GETDATE())-1, 1, 1)
 ),
-CTE_Lead AS (
-    SELECT
-        CreatedByEmployeeNumber AS LeadCreatedByEmployeeNumber,
-        OwnerEmployeeNumber AS LeadOwnerEmployeeNumber,
-        LeadStatusModifiedByEmployeeNumber,
-        CreatedOn,
-        LeadId,
-        LeadIdKey,
-        NccLeadsource,
-        NccWrapUp,
-        NccSubWrapUp
-    FROM [CRM].[dbo].[Leads_History_Tbl] WITH (NOLOCK)
-),
-CTE_Case AS (
-    SELECT
-        CaseNumber,
-        CaseType,
-        CaseOrigin,
-        CustomerCisNumber,
-        CaseCreatedOn,
-        CaseCreatedBy + '_' + CaseCreatedByEmployeeNumber AS CaseCreatedBy,
-        CaseModifiedOn,
-        CaseModifiedBy + '_' + CaseModifiedByEmployeeNumber AS CaseModifiedBy,
-        CaseModifiedByEmployeeNumber,
-        CaseStateCode,
-        CaseCurrentQueue,
-        CaseResolvedOn,
-        CaseResolvedBy + '_' + CaseResolvedByEmployeeNumber AS CaseResolvedBy,
-        CaseDecisionPortfolioName,
-        CaseDecisionProductName,
-        CaseDecisionCategoryName,
-        CaseDecisionSummaryName,
-        CaseDecisionSolutionResolutionType,
-        CustomerType AS Client_ID_Type,
-        Platform,
-        CaseId,
-        ActivityId,
-        BranchCallerEmployeeName,
-        BranchCallerEmployeeNumber,
-        BranchCallerEmployeeBranchCode
-    FROM [CRM].[dbo].[Cases_History_Tbl] WITH (NOLOCK)
-),
 CTE_JoinedData AS (
     SELECT
         Activity.*,
 
-        -- Lead Data
+        -- Lead Data (Deduplicated with OUTER APPLY)
         Lead_.LeadCreatedByEmployeeNumber,
         Lead_.LeadOwnerEmployeeNumber,
         Lead_.LeadStatusModifiedByEmployeeNumber,
@@ -89,7 +47,7 @@ CTE_JoinedData AS (
         Lead_.NccWrapUp,
         Lead_.NccSubWrapUp,
 
-        -- Case Data
+        -- Case Data (Deduplicated with OUTER APPLY)
         Case_.CaseNumber,
         Case_.CaseType,
         Case_.CaseOrigin,
@@ -116,17 +74,63 @@ CTE_JoinedData AS (
         COALESCE(Activity.BranchCallerEmployeeNumber, Case_.BranchCallerEmployeeNumber) AS FinalBranchNumber,
         COALESCE(Activity.BranchCallerEmployeeBranchCode, Case_.BranchCallerEmployeeBranchCode) AS FinalBranchCode,
 
-        -- Optimization: Join to Staff Data (Using COALESCE instead of OR)
+        -- Optimized Staff Join (Deduplicated with OUTER APPLY)
         COALESCE(Sp_NB.Area, Sp_CC.Area) AS Sp_Area,
         COALESCE(Sp_NB.Region, Sp_CC.Region) AS Sp_Region,
         COALESCE(Sp_NB.Title, Sp_CC.Title) AS Sp_Title,
         COALESCE(Sp_NB.Position, Sp_CC.Position) AS Sp_Position
 
     FROM CTE_Activity AS Activity
-    LEFT JOIN CTE_Lead AS Lead_
-        ON Activity.RegardingObjectId = Lead_.LeadId
-    LEFT JOIN CTE_Case AS Case_
-        ON Activity.RegardingObjectId = Case_.CaseId
+
+    -- Deduplicated Lead Join
+    OUTER APPLY (
+        SELECT TOP 1
+            CreatedByEmployeeNumber AS LeadCreatedByEmployeeNumber,
+            OwnerEmployeeNumber AS LeadOwnerEmployeeNumber,
+            LeadStatusModifiedByEmployeeNumber,
+            CreatedOn,
+            LeadId,
+            LeadIdKey,
+            NccLeadsource,
+            NccWrapUp,
+            NccSubWrapUp
+        FROM [CRM].[dbo].[Leads_History_Tbl] WITH (NOLOCK)
+        WHERE LeadId = Activity.RegardingObjectId
+        ORDER BY CreatedOn DESC
+    ) Lead_
+
+    -- Deduplicated Case Join
+    OUTER APPLY (
+        SELECT TOP 1
+            CaseNumber,
+            CaseType,
+            CaseOrigin,
+            CustomerCisNumber,
+            CaseCreatedOn,
+            CaseCreatedBy + '_' + CaseCreatedByEmployeeNumber AS CaseCreatedBy,
+            CaseModifiedOn,
+            CaseModifiedBy + '_' + CaseModifiedByEmployeeNumber AS CaseModifiedBy,
+            CaseModifiedByEmployeeNumber,
+            CaseStateCode,
+            CaseCurrentQueue,
+            CaseResolvedOn,
+            CaseResolvedBy + '_' + CaseResolvedByEmployeeNumber AS CaseResolvedBy,
+            CaseDecisionPortfolioName,
+            CaseDecisionProductName,
+            CaseDecisionCategoryName,
+            CaseDecisionSummaryName,
+            CaseDecisionSolutionResolutionType,
+            CustomerType AS Client_ID_Type,
+            Platform,
+            CaseId,
+            ActivityId,
+            BranchCallerEmployeeName,
+            BranchCallerEmployeeNumber,
+            BranchCallerEmployeeBranchCode
+        FROM [CRM].[dbo].[Cases_History_Tbl] WITH (NOLOCK)
+        WHERE CaseId = Activity.RegardingObjectId
+        ORDER BY CaseModifiedOn DESC
+    ) Case_
 
     -- Optimized Staff Join: Two separate joins for 'NB' and 'CC' prefixes (Deduplicated with OUTER APPLY)
     OUTER APPLY (
@@ -247,7 +251,20 @@ SELECT
     FinalData.Sp_Position
 
 FROM CTE_FinalDerivedOwner AS FinalData
-LEFT JOIN NCC_WFO_HeadCount.dbo.tbl_EmTrack AS HC WITH (NOLOCK)
-    ON FinalData.DerivedOwner1 = HC.StaffNoText
+
+-- Deduplicated HeadCount Join
+OUTER APPLY (
+    SELECT TOP 1
+        StaffNoText,
+        [Team Leader Name],
+        [Manager Name],
+        [Function Role],
+        [Function Area],
+        [Monoline / Brand],
+        [Desk Name],
+        [Role Within Division]
+    FROM NCC_WFO_HeadCount.dbo.tbl_EmTrack WITH (NOLOCK)
+    WHERE StaffNoText = FinalData.DerivedOwner1
+) HC
 
 ORDER BY FinalData.ActivitySource, FinalData.Direction, FinalData.CaseOrLead_Flag

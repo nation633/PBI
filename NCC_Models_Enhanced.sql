@@ -58,11 +58,21 @@ SELECT
     Sp.Email
 
 FROM [CRM].[dbo].[Cases_History_Tbl] C WITH (NOLOCK)
-LEFT JOIN [NCC_WFO_Telephony].[dbo].[SAP_StaffData_General] Sp
-    ON C.BranchCallerEmployeeNumber = CONCAT('NB', Sp.StaffNo)
-LEFT JOIN [NCC_WFO_HeadCount].[dbo].[tbl_Static_HeadCount] H
-    ON H.[Headcount for Year] = YEAR(C.[CaseCreatedOn])
-    AND H.[Headcount for Month] = MONTH(C.[CaseCreatedOn])
-    AND RIGHT('000000' + CAST(H.[Nedbank Staff Number] AS NVARCHAR), 6) = RIGHT(C.[CaseCreatedByEmployeeNumber], 6)
+
+-- Deduplicated Staff Join
+OUTER APPLY (
+    SELECT TOP 1 Area, Region, Title, Position, Email
+    FROM [NCC_WFO_Telephony].[dbo].[SAP_StaffData_General] WITH (NOLOCK)
+    WHERE CONCAT('NB', StaffNo) = C.BranchCallerEmployeeNumber
+) Sp
+
+-- Deduplicated HeadCount Join
+OUTER APPLY (
+    SELECT TOP 1 [Team Leader Name], [Manager Name], [Function Area]
+    FROM [NCC_WFO_HeadCount].[dbo].[tbl_Static_HeadCount] WITH (NOLOCK)
+    WHERE [Headcount for Year] = YEAR(C.[CaseCreatedOn])
+      AND [Headcount for Month] = MONTH(C.[CaseCreatedOn])
+      AND RIGHT('000000' + CAST([Nedbank Staff Number] AS NVARCHAR), 6) = RIGHT(C.[CaseCreatedByEmployeeNumber], 6)
+) H
 
 WHERE YEAR(C.CaseCreatedOn) = @YEAR
